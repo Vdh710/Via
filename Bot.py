@@ -3,7 +3,7 @@
 """
 ZIOKATZ AOV CHECKER - API Server
 Exposes /check endpoint for account validation.
-Usage: python app.py  (chạy trên Render)
+Usage: python app.py
 """
 
 import os
@@ -2412,14 +2412,10 @@ def _extract_aov_activity(recent_games, player):
         latest_match_text = latest_match['timestamp'].astimezone(vn_tz).strftime('%H:%M:%S %d/%m/%Y (UTC+7)')
     return latest_text, reputation if reputation is not None else 'N/A', latest_match_text
 
+# ===== BỎ FILTER REGION - CHO PHÉP TẤT CẢ CÁC NƯỚC =====
 def _is_vietnam_server_result(r):
-    region = str(r.get("region", "") or "").strip().upper()
-    region_compact = re.sub(r"[^A-Z]", "", region)
-    if region_compact:
-        return region_compact in {"VN", "VIETNAM"}
-    country = str(r.get("country", "") or "").strip().upper()
-    country_compact = re.sub(r"[^A-Z]", "", country)
-    return country_compact in {"VN", "VIETNAM"}
+    # Luôn trả về True để check tất cả các nước
+    return True
 
 def _normalize_country(code):
     if not code:
@@ -2692,10 +2688,11 @@ def _check_login_once(account, password, timeout, fetch_info, proxy, debug):
                 'shells': login_info_fast.get('shells', 0),
                 'topup_time': login_info_fast.get('topup_time', 0),
             })
-            if not _is_vietnam_server_result(result):
-                result['status'] = 'FILTERED'
-                result['detail'] = 'NON_VIETNAM_SERVER'
-                return result
+            # BỎ FILTER REGION
+            # if not _is_vietnam_server_result(result):
+            #     result['status'] = 'FILTERED'
+            #     result['detail'] = 'NON_VIETNAM_SERVER'
+            #     return result
 
             # Check ban via kientuong
             oauth = _fetch_oauth_token(sock, session_key, LIEN_QUAN_APP_ID)
