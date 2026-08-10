@@ -1168,7 +1168,7 @@ def _fetch_fcmobile_me_from_access_token(access_token, proxy=None):
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
             "X-Requested-With": "com.garena.game.fcmobilevn",
-            "User-Agent": "Mozilla/5.0 (Linux; Android 12; SM-A528B Build/V417IR; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.154 Mobile Safari/537.36; GarenaMSDK/5.12.1",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 12; SM-A528B Build/V417IR; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.0.0 Mobile Safari/537.36; GarenaMSDK/5.12.1",
             "Referer": f"{base}/",
         }
         try:
@@ -2582,6 +2582,7 @@ def check_login(account, password, timeout=7, fetch_info=False, proxy=None, debu
     proxy_fails = 0
     no_proxy_mode = (proxy is None and not _proxy_list)
     max_retries = 2 if no_proxy_mode else 4
+    user_provided_proxy = proxy is not None  # remember if user supplied proxy
 
     for _retry in range(max_retries):
         if proxy is None and _proxy_list:
@@ -2597,7 +2598,8 @@ def check_login(account, password, timeout=7, fetch_info=False, proxy=None, debu
             return result
         if _is_port_exhaustion(detail):
             time.sleep(0.3)
-            proxy = _next_proxy() if _proxy_list else None
+            if not user_provided_proxy and _proxy_list:
+                proxy = _next_proxy()
             continue
         if status == 'TIMEOUT' and no_proxy_mode:
             result['status'] = 'PORT_BLOCKED'
@@ -2605,11 +2607,15 @@ def check_login(account, password, timeout=7, fetch_info=False, proxy=None, debu
             return result
         if status in ('ERROR', 'TIMEOUT') or _is_proxy_error(detail):
             proxy_fails += 1
-            proxy = _next_proxy() if _proxy_list else None
+            # Only rotate proxy if we are using the pool (proxy not user-provided)
+            if not user_provided_proxy and _proxy_list:
+                proxy = _next_proxy()
+            # else keep the user-provided proxy
             time.sleep(0.3)
             continue
         if detail == 'Empty LoginReply data':
-            proxy = _next_proxy() if _proxy_list else None
+            if not user_provided_proxy and _proxy_list:
+                proxy = _next_proxy()
             continue
         return result
     if result:
@@ -3109,9 +3115,50 @@ if Flask is not None:
         user = request.args.get('user')
         password = request.args.get('pass')
         if not user or not password:
-            return jsonify({"ok": False, "error": "Missing user or pass"})
-        # Lấy proxy nếu có
-        proxy = _next_proxy() if _proxy_list else None
+            return jsonify({
+                "ok": False,
+                "error": "Thiếu tên người dùng hoặc mật khẩu",
+                "usage": "/check?user=USERNAME&pass=PASSWORD&proxy=PROXY (optional)",
+                "example": "/check?user=ramos1900&pass=0972322291ASD"
+            })
+
+        proxy_param = request.args.get('proxy')
+        proxy = None
+        if proxy_param:
+            try:
+                # Parse proxy: user:pass@ip:port or ip:port
+                if '@' in proxy_param:
+                    auth, addr = proxy_param.split('@', 1)
+                    if ':' in auth:
+                        user_proxy, pw_proxy = auth.split(':', 1)
+                    else:
+                        user_proxy, pw_proxy = auth, None
+                else:
+                    addr = proxy_param
+                    user_proxy = pw_proxy = None
+                if ':' in addr:
+                    ip, port_str = addr.split(':', 1)
+                    port = int(port_str)
+                    proxy = (ip, port, user_proxy, pw_proxy)
+                else:
+                    return jsonify({
+                        "ok": False,
+                        "error": "Invalid proxy format. Use ip:port or user:pass@ip:port",
+                        "usage": "/check?user=USERNAME&pass=PASSWORD&proxy=PROXY (optional)",
+                        "example": "/check?user=ramos1900&pass=0972322291ASD&proxy=1.2.3.4:8080"
+                    })
+            except Exception as e:
+                return jsonify({
+                    "ok": False,
+                    "error": f"Invalid proxy: {str(e)}",
+                    "usage": "/check?user=USERNAME&pass=PASSWORD&proxy=PROXY (optional)",
+                    "example": "/check?user=ramos1900&pass=0972322291ASD&proxy=user:pass@1.2.3.4:8080"
+                })
+        else:
+            # Nếu không có proxy param, dùng proxy pool nếu có
+            if _proxy_list:
+                proxy = _next_proxy()
+
         result = check_login(user, password, fetch_info=True, proxy=proxy)
         return jsonify({"ok": True, "result": result})
 
