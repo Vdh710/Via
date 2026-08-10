@@ -2414,7 +2414,6 @@ def _extract_aov_activity(recent_games, player):
 
 # ===== BỎ FILTER REGION - CHO PHÉP TẤT CẢ CÁC NƯỚC =====
 def _is_vietnam_server_result(r):
-    # Luôn trả về True để check tất cả các nước
     return True
 
 def _normalize_country(code):
@@ -2497,6 +2496,57 @@ def _translate_aov_rank(rank_str):
     if 'ซูพรีมคอนเควอร์เรอร์' in s or 'supreme conqueror' in s or '璀璨傳說' in s: return 'Chiến Tướng'
     if 'คอนเควอร์เรอร์' in s or 'conqueror' in s or 'master' in s or '戰場傳說' in s: return 'Cao Thủ'
     return rank_str
+
+def _derive_tinh_trang(h: dict) -> str:
+    """Derive account status description from bindings."""
+    pw = h.get('password_set', False)
+    
+    # Email verified
+    email_v = h.get('email_v', 0) or 0
+    email_verified = h.get('email_verified', False)
+    masked_email = h.get('masked_email', '')
+    has_email = email_verified or email_v > 0
+    if masked_email and masked_email.replace('*', '').replace('@', '').replace('.', ''):
+        has_email = True
+    
+    # SĐT
+    mobile_bound = h.get('mobile_bound', False)
+    masked_phone = h.get('masked_phone', '')
+    prefill_phone = (h.get('aov_prefill_mobile') or '').strip() or \
+                    (h.get('fcmobile_prefill_mobile') or '').strip()
+    has_phone = mobile_bound or bool(masked_phone) or bool(prefill_phone)
+    
+    fb = h.get('fb_linked', False)
+    cccd = bool(h.get('idcard', '').replace('*', ''))
+    auth = h.get('authenticator_enable', 0) or h.get('two_step_verify', 0)
+    
+    parts = []
+    if has_phone:   parts.append('SĐT')
+    if has_email:   parts.append('Mail')
+    if fb:          parts.append('FB')
+    if cccd:        parts.append('CCCD')
+    if auth:        parts.append('2FA')
+    if pw:          parts.append('Pass')
+    
+    is_banned = _is_yes(h.get('aov_banned', ''))
+    suspicious = int(h.get('suspicious', 0) or 0)
+
+    total = len(parts)
+    if total == 0:
+        base = 'Acc Trắng'
+    elif total >= 4:
+        base = 'Full Info'
+    else:
+        base = 'Acc Dính ' + ' + '.join(parts)
+
+    suffix = []
+    if is_banned:
+        suffix.append('BAN')
+    if suspicious:
+        suffix.append('Suspicious')
+    if suffix:
+        return base + ' [' + ' + '.join(suffix) + ']'
+    return base
 
 # ======================= CORE CHECK LOGIN ==================================
 _PROXY_ERRORS = (
@@ -2688,7 +2738,7 @@ def _check_login_once(account, password, timeout, fetch_info, proxy, debug):
                 'shells': login_info_fast.get('shells', 0),
                 'topup_time': login_info_fast.get('topup_time', 0),
             })
-            # BỎ FILTER REGION
+            # BỎ FILTER REGION - COMMENT ĐOẠN DƯỚI ĐÂY
             # if not _is_vietnam_server_result(result):
             #     result['status'] = 'FILTERED'
             #     result['detail'] = 'NON_VIETNAM_SERVER'
@@ -3017,6 +3067,8 @@ def _check_login_once(account, password, timeout, fetch_info, proxy, debug):
             else:
                 result["aov_rank"] = trans_r
 
+        # ===== THÊM TRƯỜNG security_status =====
+        result['security_status'] = _derive_tinh_trang(result)
         return result
 
     except socket.timeout:
